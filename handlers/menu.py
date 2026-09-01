@@ -137,12 +137,19 @@ async def menu_wallet(message: types.Message, state: FSMContext):
         await message.answer(ui_editor.get_text("msg_18ae2939df", "ابتدا دستور /start را بزنید."))
         return
 
+    rs = db.get_referral_settings()
+    if rs["paid_purchase_required"] and rs["min_volume_enabled"]:
+        wallet_condition = f"ℹ️ موجودی در انتظار، پس از خرید حجم {rs['min_volume_gb']} گیگ یا بیشتر توسط فردی که با لینک شما عضو شده، به‌صورت خودکار آزاد می‌شود."
+    elif rs["paid_purchase_required"]:
+        wallet_condition = "ℹ️ موجودی در انتظار، پس از هر خرید پولی توسط فردی که با لینک شما عضو شده، به‌صورت خودکار آزاد می‌شود."
+    else:
+        wallet_condition = "ℹ️ پاداش دعوت بدون نیاز به خرید فرد دعوت‌شده، بلافاصله پس از عضویت او آزاد می‌شود."
+
     text = (
         f"💰 کیف پول شما\n\n"
         f"👛 موجودی قابل استفاده: {user['wallet']:,} تومان\n"
         f"🔒 موجودی در انتظار: {user['locked_wallet']:,} تومان\n\n"
-        f"ℹ️ موجودی در انتظار، پس از خرید حجم {db.get_referral_min_volume_gb()} گیگ یا بیشتر توسط فردی که با لینک شما عضو شده، "
-        f"به‌صورت خودکار آزاد می‌شود."
+        f"{wallet_condition}"
     )
     await show_menu_with_sticker(message.bot, message.chat.id, "wallet", text, reply_markup=wallet_menu())
 
@@ -157,17 +164,18 @@ async def menu_referral(message: types.Message, state: FSMContext):
 
     stats = db.get_referral_stats(user["id"])
     invite_link = f"https://t.me/{bot_info.get('bot_username')}?start={stats['invite_code']}"
-    referral_enabled = db.get_referral_enabled()
-    referral_min_volume = db.get_referral_min_volume_gb()
-    referral_reward = db.get_referral_reward_amount()
-    referral_condition = (
-        f"خرید حداقل {referral_min_volume} گیگ" if referral_enabled
-        else "هر خرید پولی"
-    )
+
+    rs = db.get_referral_settings()
+    if not rs["paid_purchase_required"]:
+        condition_text = f"ℹ️ به‌ازای هر دوستی که با لینک شما عضو شود، {rs['reward_amount']:,} تومان بلافاصله و بدون نیاز به خرید به کیف پول شما آزاد می‌شود."
+    elif rs["min_volume_enabled"]:
+        condition_text = f"ℹ️ به‌ازای هر دوستی که با لینک شما عضو شود و یک خرید {rs['min_volume_gb']} گیگ یا بیشتر انجام دهد، {rs['reward_amount']:,} تومان به‌صورت خودکار و بدون نیاز به هیچ اقدام دیگری به کیف پول شما آزاد می‌شود.\n❌ خریدهای کمتر از {rs['min_volume_gb']} گیگ و تست رایگان پاداش را آزاد نمی‌کنند."
+    else:
+        condition_text = f"ℹ️ به‌ازای هر دوستی که با لینک شما عضو شود و هر خرید پولی انجام دهد، {rs['reward_amount']:,} تومان به‌صورت خودکار و بدون نیاز به هیچ اقدام دیگری به کیف پول شما آزاد می‌شود."
 
     text = (
         f"👥 دعوت دوستان و کسب درآمد 💸\n\n"
-        f"دوستانتو دعوت کن و به‌ازای هر دعوت موفق، {referral_reward:,} تومان پاداش نقدی بگیر! 🎁\n"
+        f"دوستانتو دعوت کن و به‌ازای هر دعوت موفق، {rs['reward_amount']:,} تومان پاداش نقدی بگیر! 🎁\n"
         f"کافیه لینک اختصاصی‌ت رو برای دوستات، گروه‌ها یا کانال‌هایی که توشون عضوی بفرستی.\n\n"
         f"🔗 لینک اختصاصی شما:\n{invite_link}\n\n"
         f"🔑 کد اختصاصی: {stats['invite_code']}\n\n"
@@ -175,11 +183,8 @@ async def menu_referral(message: types.Message, state: FSMContext):
         f"✅ دعوت‌های موفق: {stats['successful_invites']}\n"
         f"🔓 مبلغ آزاد شده: {stats['released_amount']:,} تومان\n"
         f"🔒 مبلغ در انتظار: {user['locked_wallet']:,} تومان\n\n"
-        f"ℹ️ به‌ازای هر دوستی که با لینک شما عضو شود و {referral_condition} انجام دهد، "
-        f"{referral_reward:,} تومان به‌صورت خودکار و بدون نیاز به هیچ اقدام دیگری به کیف پول شما آزاد می‌شود. "
-        f"(تست رایگان پاداش را آزاد نمی‌کند)\n\n"
-        f"⚠️ لطفاً فقط لینک را برای افراد واقعی ارسال کنید؛ استفاده از اکانت‌های فیک تقلب "
-        f"محسوب شده و جایزه شما لغو می‌شود."
+        f"{condition_text}\n\n"
+        f"⚠️ لطفاً فقط لینک را برای افراد واقعی ارسال کنید؛ استفاده از اکانت‌های فیک تقلب محسوب شده و جایزه شما لغو می‌شود."
     )
     await show_menu_with_sticker(message.bot, message.chat.id, "referral", text, reply_markup=referral_menu())
 
