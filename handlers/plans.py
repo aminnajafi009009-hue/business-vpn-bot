@@ -454,7 +454,7 @@ async def pay_with_wallet(callback: types.CallbackQuery, state: FSMContext):
     if winning_code:
         db.use_discount(winning_code, user["id"])
 
-    if db.referral_purchase_qualifies(plan.get("volume_gb", 0), is_free_test=(plan_type(plan_key) == "test")):
+    if db.referral_purchase_qualifies(plan.get("volume_gb", 0), paid_purchase=True, is_free_test=(plan_key == FREE_TEST_PLAN_KEY)):
         try:
             db.complete_referral(user["id"])
         except ValueError:
@@ -536,7 +536,7 @@ async def finalize_online_payment(bot, payment: dict) -> int | None:
                 logger.exception("خطا در مصرف کد تخفیف پس از پرداخت آنلاین")
 
         plan = db.get_effective_plan(payment["plan_key"]) if payment["plan_key"] else None
-        if plan and db.referral_purchase_qualifies(plan.get("volume_gb", 0), is_free_test=(plan_type(payment["plan_key"]) == "test" if payment.get("plan_key") else False)):
+        if plan and db.referral_purchase_qualifies(plan.get("volume_gb", 0), paid_purchase=True, is_free_test=(payment.get("plan_key") == FREE_TEST_PLAN_KEY)):
             try:
                 db.complete_referral(payment["user_id"])
             except ValueError:
@@ -599,7 +599,7 @@ async def finalize_custom_online_payment(bot, payment: dict) -> int | None:
         db.set_custom_order_status(order_id, "paid")
         db.mark_online_payment_paid(payment["id"], order_id)
 
-        if volume and db.referral_purchase_qualifies(volume):
+        if db.referral_purchase_qualifies(volume, paid_purchase=True, is_free_test=False):
             try:
                 db.complete_referral(payment["user_id"])
             except ValueError:
@@ -1733,7 +1733,7 @@ async def cbuild_pay_wallet(callback: types.CallbackQuery, state: FSMContext):
     order_id = db.create_custom_order(user["id"], volume, days, custom_name, price, order_type, target_config_id, renew_mode=data.get("renew_mode"))
     db.set_custom_order_status(order_id, "paid")
 
-    if db.referral_purchase_qualifies(volume):
+    if db.referral_purchase_qualifies(volume, paid_purchase=True, is_free_test=False):
         try:
             db.complete_referral(user["id"])
         except ValueError:
