@@ -64,12 +64,17 @@ async def _notify_referrer_of_new_join(bot, user: dict):
         return
 
     try:
+        referral_condition_text = (
+            f"پس از خرید حداقل {referral_min_volume} گیگ"
+            if referral_enabled
+            else "پس از هر خرید پولی"
+        )
         await bot.send_message(
             int(referrer["telegram_id"]),
             f"🎉 یک عضو جدید از طریق لینک دعوت شما وارد ربات شد و عضویتش تأیید شد!\n\n"
             f"👤 نام: {user['name']}\n"
             f"🆔 آیدی: `{user['telegram_id']}`\n\n"
-            f"💰 {"پس از خرید حداقل " + str(referral_min_volume) + " گیگ" if referral_enabled else "پس از هر خرید پولی"} توسط این کاربر، "
+            f"💰 {referral_condition_text} توسط این کاربر، "
             f"{referral_reward:,} تومان به‌صورت خودکار به کیف پول شما آزاد می‌شود.",
             parse_mode="Markdown",
         )
