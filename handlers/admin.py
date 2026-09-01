@@ -87,7 +87,7 @@ from keyboards import (
     admin_sticker_cancel_keyboard,
     admin_reply_keyboard,
     admin_botinfo_menu,
-    admin_referral_settings_keyboard,
+    admin_botinfo_referral_menu,
     admin_botinfo_field_keyboard,
     admin_botinfo_channels_menu,
     admin_manage_admins_keyboard,
@@ -902,7 +902,7 @@ async def approve_purchase(callback: types.CallbackQuery):
         except Exception:
             logging.getLogger(__name__).exception("خطا در مصرف کد تخفیف کارت‌به‌کارت")
 
-    if db.referral_purchase_qualifies(plan.get("volume_gb", 0), is_free_test=(plan_type(plan_key) == "test")):
+    if db.referral_purchase_qualifies(plan.get("volume_gb", 0), paid_purchase=True, is_free_test=(plan_key == FREE_TEST_PLAN_KEY)):
         try:
             db.complete_referral(user["id"])
         except ValueError:
@@ -987,7 +987,7 @@ async def approve_custom_order(callback: types.CallbackQuery):
     db.record_purchase(user["id"], order["price"], "خرید سرویس سفارشی (کارت به کارت)")
     db.set_custom_order_status(order_id, "paid")
 
-    if db.referral_purchase_qualifies(order.get("volume_gb", 0)):
+    if db.referral_purchase_qualifies(order.get("volume_gb", 0), paid_purchase=True, is_free_test=False):
         try:
             db.complete_referral(user["id"])
         except ValueError:
@@ -4334,8 +4334,6 @@ def _botinfo_status_text():
         lines.append(f"• {label}: {val}")
     channels = bot_info.get_required_channels()
     lines.append(f"\n• کانال‌های اجباری: {len(channels)} عدد")
-    ref_status = "روشن" if db.get_referral_enabled() else "خاموش"
-    lines.append(f"• رفرال: {ref_status} | حداقل خرید: {db.get_referral_min_volume_gb()} گیگ | پاداش: {db.get_referral_reward_amount():,} تومان")
     return "\n".join(lines)
 
 
@@ -4358,79 +4356,6 @@ async def admin_botinfo_open_msg(message: types.Message, state: FSMContext):
         return
     await state.clear()
     await message.answer(_botinfo_status_text(), reply_markup=admin_botinfo_menu())
-
-
-@router.callback_query(F.data == "botinfo_referral_settings")
-async def admin_botinfo_referral_settings(callback: types.CallbackQuery, state: FSMContext):
-    if not _is_admin(callback.from_user.id):
-        await callback.answer("⛔ دسترسی ندارید.", show_alert=True)
-        return
-    await state.clear()
-    enabled = db.get_referral_enabled()
-    status = "🟢 روشن" if enabled else "🔴 خاموش"
-    text = (
-        "🎁 تنظیمات رفرال\n\n"
-        f"شرط حداقل خرید: {status}\n"
-        f"حداقل حجم خرید: {db.get_referral_min_volume_gb()} گیگ\n"
-        f"مبلغ پاداش رفرال: {db.get_referral_reward_amount():,} تومان\n\n"
-        "همه تغییرات مستقیماً در جدول settings دیتابیس ذخیره می‌شوند و بعد از ری‌استارت هم باقی می‌مانند."
-    )
-    await callback.message.edit_text(text, reply_markup=admin_referral_settings_keyboard(enabled))
-    await callback.answer()
-
-
-@router.callback_query(F.data == "botinfo_ref_toggle")
-async def admin_botinfo_ref_toggle(callback: types.CallbackQuery, state: FSMContext):
-    if not _is_admin(callback.from_user.id):
-        await callback.answer("⛔ دسترسی ندارید.", show_alert=True)
-        return
-    db.set_referral_settings(enabled=not db.get_referral_enabled())
-    await admin_botinfo_referral_settings(callback, state)
-
-
-@router.callback_query(F.data.in_({"botinfo_ref_min", "botinfo_ref_reward"}))
-async def admin_botinfo_ref_edit_start(callback: types.CallbackQuery, state: FSMContext):
-    if not _is_admin(callback.from_user.id):
-        await callback.answer("⛔ دسترسی ندارید.", show_alert=True)
-        return
-    key = "min_volume_gb" if callback.data == "botinfo_ref_min" else "reward_amount"
-    label = "حداقل حجم خرید رفرال (گیگ)" if key == "min_volume_gb" else "مبلغ پاداش رفرال (تومان)"
-    current = db.get_referral_min_volume_gb() if key == "min_volume_gb" else db.get_referral_reward_amount()
-    await state.update_data(referral_setting=key)
-    await state.set_state(AdminStates.waiting_referral_setting)
-    await callback.message.answer(f"✏️ {label} را وارد کنید.\nمقدار فعلی: {current:,}")
-    await callback.answer()
-
-
-@router.message(AdminStates.waiting_referral_setting)
-async def admin_botinfo_ref_edit_save(message: types.Message, state: FSMContext):
-    if not _is_admin(message.from_user.id):
-        return
-    data = await state.get_data()
-    key = data.get("referral_setting")
-    raw = (message.text or "").strip().replace(",", "").replace("٬", "")
-    try:
-        value = int(raw)
-        if value < 0:
-            raise ValueError
-        if key == "min_volume_gb":
-            if value > 10000:
-                raise ValueError
-            db.set_referral_settings(min_volume_gb=value)
-            label = "حداقل حجم خرید"
-        elif key == "reward_amount":
-            if value > 1000000000:
-                raise ValueError
-            db.set_referral_settings(reward_amount=value)
-            label = "مبلغ پاداش رفرال"
-        else:
-            raise ValueError
-    except ValueError:
-        await message.answer("❌ مقدار نامعتبر است. فقط عدد وارد کنید.")
-        return
-    await state.clear()
-    enabled = db.get_referral_enabled()
-    await message.answer(f"✅ {label} ذخیره شد و در دیتابیس ثبت گردید.", reply_markup=admin_referral_settings_keyboard(enabled))
 
 
 @router.callback_query(F.data.startswith("botinfo_edit_"))
@@ -4476,6 +4401,101 @@ async def admin_botinfo_edit_save(message: types.Message, state: FSMContext):
     bot_info.set(key, value)
     await state.clear()
     await message.answer(f"✅ «{labels[key]}» به‌روز شد.", reply_markup=admin_botinfo_menu())
+
+
+@router.callback_query(F.data == "botinfo_referral")
+async def admin_botinfo_referral_open(callback: types.CallbackQuery, state: FSMContext | None = None):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("⛔ دسترسی ندارید.", show_alert=True)
+        return
+    if state is not None:
+        await state.clear()
+    settings = db.get_referral_settings()
+    s1 = "روشن" if settings["min_volume_enabled"] else "خاموش"
+    s2 = "روشن" if settings["paid_purchase_required"] else "خاموش"
+    if not settings["paid_purchase_required"]:
+        condition = "بدون شرط خرید (پاداش فوری بعد از عضویت)"
+    elif settings["min_volume_enabled"]:
+        condition = f"خرید حداقل {settings['min_volume_gb']} گیگ"
+    else:
+        condition = "هر خرید پولی"
+    text = (
+        "🎁 مدیریت رفرال\n\n"
+        f"💰 مبلغ پاداش: {settings['reward_amount']:,} تومان\n"
+        f"📦 حداقل حجم: {settings['min_volume_gb']} گیگ\n"
+        f"🔘 شرط حداقل حجم: {s1}\n"
+        f"💳 شرط خرید پولی: {s2}\n"
+        f"📌 وضعیت فعلی: {condition}\n\n"
+        "نکته: خاموش‌کردن «شرط خرید پولی» باعث می‌شود رفرال‌های جدید بدون نیاز به خرید، بلافاصله پاداش بگیرند و رفرال‌های pending فعلی نیز آزاد شوند."
+    )
+    await callback.message.edit_text(text, reply_markup=admin_botinfo_referral_menu(settings))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "refset_toggle_min_volume")
+async def admin_referral_toggle_min_volume(callback: types.CallbackQuery):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("⛔ دسترسی ندارید.", show_alert=True)
+        return
+    settings = db.get_referral_settings()
+    db.set_referral_setting("min_volume_enabled", not settings["min_volume_enabled"])
+    await admin_botinfo_referral_open(callback)
+
+
+@router.callback_query(F.data == "refset_toggle_paid_purchase")
+async def admin_referral_toggle_paid_purchase(callback: types.CallbackQuery, state: FSMContext):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("⛔ دسترسی ندارید.", show_alert=True)
+        return
+    settings = db.get_referral_settings()
+    new_value = not settings["paid_purchase_required"]
+    db.set_referral_setting("paid_purchase_required", new_value)
+    if not new_value:
+        try:
+            db.release_all_pending_referrals()
+        except Exception:
+            logging.getLogger(__name__).exception("خطا در آزادسازی رفرال‌های pending پس از خاموش کردن شرط خرید")
+            await callback.answer("⚠️ تنظیم ذخیره شد اما آزادسازی برخی رفرال‌ها با خطا مواجه شد.", show_alert=True)
+            await admin_botinfo_referral_open(callback, state)
+            return
+    await admin_botinfo_referral_open(callback, state)
+
+
+@router.callback_query(F.data.in_({"refset_edit_min_volume", "refset_edit_reward"}))
+async def admin_referral_setting_edit_start(callback: types.CallbackQuery, state: FSMContext):
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("⛔ دسترسی ندارید.", show_alert=True)
+        return
+    key = "min_volume_gb" if callback.data == "refset_edit_min_volume" else "reward_amount"
+    labels = {"min_volume_gb": "حداقل حجم خرید رفرال (گیگ)", "reward_amount": "مبلغ پاداش رفرال (تومان)"}
+    settings = db.get_referral_settings()
+    await state.update_data(referral_setting_key=key)
+    await state.set_state(AdminStates.waiting_referral_setting_value)
+    await callback.message.answer(
+        f"✏️ مقدار جدید «{labels[key]}» را فقط به‌صورت عدد ارسال کنید.\n"
+        f"مقدار فعلی: {settings[key]:,}"
+    )
+    await callback.answer()
+
+
+@router.message(AdminStates.waiting_referral_setting_value)
+async def admin_referral_setting_edit_save(message: types.Message, state: FSMContext):
+    if not _is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    key = data.get("referral_setting_key")
+    try:
+        raw = (message.text or "").replace(",", "").replace("٬", "").strip()
+        value = int(raw)
+        if value < 0 or (key == "min_volume_gb" and value < 1):
+            raise ValueError
+        db.set_referral_setting(key, value)
+    except Exception:
+        await message.answer("❌ مقدار نامعتبر است. فقط یک عدد مثبت وارد کنید.")
+        return
+    await state.clear()
+    settings = db.get_referral_settings()
+    await message.answer("✅ تنظیم رفرال در دیتابیس ذخیره شد.", reply_markup=admin_botinfo_referral_menu(settings))
 
 
 @router.callback_query(F.data == "botinfo_channels")
