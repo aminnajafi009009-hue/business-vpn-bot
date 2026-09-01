@@ -111,7 +111,7 @@ class AdminStates(StatesGroup):
     # ℹ️ اطلاعات ربات (ویرایش متن خوش‌آمدگویی، شماره کارت، لینک پشتیبانی و ...)
     waiting_botinfo_value = State()
     waiting_botinfo_channel_add = State()
-    waiting_referral_setting = State()
+    waiting_referral_setting_value = State()
 
     # 🎁 تنظیم حجم/مدت (ساعت یا روز)/قیمت پلن تست رایگان
     waiting_free_test_settings = State()
