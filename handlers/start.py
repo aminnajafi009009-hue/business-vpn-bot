@@ -57,9 +57,6 @@ async def _notify_referrer_of_new_join(bot, user: dict):
         return
 
     referrer = db.get_user_by_id(user["referrer_id"])
-    referral_min_volume = db.get_referral_min_volume_gb()
-    referral_reward = db.get_referral_reward_amount()
-    referral_enabled = db.get_referral_enabled()
     if referrer is None:
         return
 
@@ -69,8 +66,7 @@ async def _notify_referrer_of_new_join(bot, user: dict):
             f"🎉 یک عضو جدید از طریق لینک دعوت شما وارد ربات شد و عضویتش تأیید شد!\n\n"
             f"👤 نام: {user['name']}\n"
             f"🆔 آیدی: `{user['telegram_id']}`\n\n"
-            f"💰 {('پس از خرید حداقل ' + str(referral_min_volume) + ' گیگ') if referral_enabled else 'پس از هر خرید پولی'} توسط این کاربر، "
-            f"{referral_reward:,} تومان به‌صورت خودکار به کیف پول شما آزاد می‌شود.",
+            f"💰 {((f"پس از اینکه این کاربر یک خرید {db.get_referral_settings()['min_volume_gb']} گیگ یا بیشتر انجام دهد، " if db.get_referral_settings()['min_volume_enabled'] else "پس از اینکه این کاربر هر خرید پولی انجام دهد، " ) + f"{db.get_referral_settings()['reward_amount']:,} تومان به‌صورت خودکار به کیف پول شما آزاد می‌شود.") if db.get_referral_settings()['paid_purchase_required'] else f"{db.get_referral_settings()['reward_amount']:,} تومان به‌صورت فوری و بدون نیاز به خرید به کیف پول شما آزاد می‌شود."}",
             parse_mode="Markdown",
         )
     except Exception as e:
