@@ -12,6 +12,7 @@ from aiogram import Router, F, types
 import database as db
 import bot_info
 from utils import show_menu_with_sticker
+
 from keyboards import referral_menu
 
 router = Router(name="referral")
@@ -25,23 +26,26 @@ async def referral(callback: types.CallbackQuery):
         return
 
     stats = db.get_referral_stats(user["id"])
-    referral_enabled = db.get_referral_enabled()
-    referral_min_volume = db.get_referral_min_volume_gb()
-    referral_reward = db.get_referral_reward_amount()
     invite_link = f"https://t.me/{bot_info.get('bot_username')}?start={stats['invite_code']}"
+
+    rs = db.get_referral_settings()
+    if not rs["paid_purchase_required"]:
+        condition_text = f"ℹ️ به‌ازای هر دوستی که با لینک شما عضو شود، {rs['reward_amount']:,} تومان بلافاصله و بدون نیاز به خرید به کیف پول شما آزاد می‌شود."
+    elif rs["min_volume_enabled"]:
+        condition_text = f"ℹ️ به‌ازای هر دوستی که با لینک شما عضو شود و یک خرید {rs['min_volume_gb']} گیگ یا بیشتر انجام دهد، {rs['reward_amount']:,} تومان به‌صورت خودکار به کیف پول شما آزاد می‌شود.\n❌ تست رایگان و خریدهای زیر {rs['min_volume_gb']} گیگ پاداش را آزاد نمی‌کنند."
+    else:
+        condition_text = f"ℹ️ به‌ازای هر دوستی که با لینک شما عضو شود و هر خرید پولی انجام دهد، {rs['reward_amount']:,} تومان به‌صورت خودکار و بدون نیاز به هیچ اقدام دیگری به کیف پول شما آزاد می‌شود."
 
     text = (
         f"👥 دعوت دوستان و کسب درآمد 💸\n\n"
-        f"دوستانتو دعوت کن و به‌ازای هر دعوت موفق، {referral_reward:,} تومان پاداش نقدی بگیر! 🎁\n\n"
+        f"دوستانتو دعوت کن و به‌ازای هر دعوت موفق، {rs['reward_amount']:,} تومان پاداش نقدی بگیر! 🎁\n\n"
         f"🔗 لینک اختصاصی شما:\n{invite_link}\n\n"
         f"🔑 کد اختصاصی: {stats['invite_code']}\n\n"
         f"👤 تعداد دعوت: {stats['invited_count']}\n"
         f"✅ دعوت‌های موفق: {stats['successful_invites']}\n"
         f"🔓 مبلغ آزاد شده: {stats['released_amount']:,} تومان\n"
         f"🔒 مبلغ در انتظار: {user['locked_wallet']:,} تومان\n\n"
-        f"ℹ️ {('شرط خرید حداقل ' + str(referral_min_volume) + ' گیگ فعال است') if referral_enabled else 'شرط حداقل حجم خرید خاموش است و هر خرید پولی واجد شرایط است'}. "
-        f"پاداش {referral_reward:,} تومان به‌صورت خودکار به کیف پول شما آزاد می‌شود. "
-        f"(تست رایگان پاداش را آزاد نمی‌کند)"
+        f"{condition_text}"
     )
     await show_menu_with_sticker(callback.bot, callback.message.chat.id, "referral", text, reply_markup=referral_menu())
     await callback.answer()
