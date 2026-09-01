@@ -841,24 +841,22 @@ def create_user(telegram_id, name: str, referrer_invite_code: str | None = None)
         new_user_id = cur.lastrowid
 
         if referrer:
+            settings = get_referral_settings()
+            reward = settings["reward_amount"]
+            immediate = not settings["paid_purchase_required"]
+            status = "completed" if immediate else "pending"
             cur.execute(
                 """INSERT INTO referrals (referrer_id, invited_id, reward, status, created_at)
-                   VALUES (?, ?, ?, 'pending', ?)""",
-                (referrer["id"], new_user_id, get_referral_reward_amount(), _now()),
+                   VALUES (?, ?, ?, ?, ?)""",
+                (referrer["id"], new_user_id, reward, status, _now()),
             )
-            cur.execute(
-                "UPDATE users SET invited_count = invited_count + 1 WHERE id = ?",
-                (referrer["id"],),
-            )
-            cur.execute(
-                "UPDATE users SET locked_wallet = locked_wallet + ? WHERE id = ?",
-                (get_referral_reward_amount(), referrer["id"]),
-            )
-            cur.execute(
-                """INSERT INTO transactions (user_id, type, amount, status, description, created_at)
-                   VALUES (?, 'referral_locked', ?, 'pending', ?, ?)""",
-                (referrer["id"], get_referral_reward_amount(), "پاداش دعوت (در انتظار خرید واجد شرط)", _now()),
-            )
+            cur.execute("UPDATE users SET invited_count = invited_count + 1 WHERE id = ?", (referrer["id"],))
+            if immediate:
+                cur.execute("UPDATE users SET wallet = wallet + ?, successful_invites = successful_invites + 1 WHERE id = ?", (reward, referrer["id"]))
+                cur.execute("INSERT INTO transactions (user_id, type, amount, status, description, created_at) VALUES (?, 'referral_release', ?, 'completed', ?, ?)", (referrer["id"], reward, "آزادسازی فوری پاداش دعوت (بدون شرط خرید)", _now()))
+            else:
+                cur.execute("UPDATE users SET locked_wallet = locked_wallet + ? WHERE id = ?", (reward, referrer["id"]))
+                cur.execute("INSERT INTO transactions (user_id, type, amount, status, description, created_at) VALUES (?, 'referral_locked', ?, 'pending', ?, ?)", (referrer["id"], reward, "پاداش دعوت (در انتظار خرید واجد شرط)", _now()))
 
     if referrer:
         cache.invalidate(f"user:{referrer['telegram_id']}")
@@ -1558,6 +1556,62 @@ def expire_due_online_payments() -> list[dict]:
 # ---------------------------------------------------------------------------
 # ⚙️ تنظیمات کلی (key-value) — مثل روشن/خاموش بودن بخش سفارشات
 # ---------------------------------------------------------------------------
+REFERRAL_SETTING_PREFIX = "referral_"
+
+def get_referral_settings() -> dict:
+    """تنظیمات رفرال را از دیتابیس می‌خواند؛ config فقط fallback اولیه است."""
+    return {
+        "min_volume_enabled": get_setting(REFERRAL_SETTING_PREFIX + "min_volume_enabled", "1") == "1",
+        "paid_purchase_required": get_setting(REFERRAL_SETTING_PREFIX + "paid_purchase_required", "1") == "1",
+        "min_volume_gb": max(0, int(get_setting(REFERRAL_SETTING_PREFIX + "min_volume_gb", str(REFERRAL_MIN_VOLUME_GB)) or REFERRAL_MIN_VOLUME_GB)),
+        "reward_amount": max(0, int(get_setting(REFERRAL_SETTING_PREFIX + "reward_amount", str(REFERRAL_LOCK_AMOUNT)) or REFERRAL_LOCK_AMOUNT)),
+    }
+
+def set_referral_setting(key: str, value) -> None:
+    allowed = {"min_volume_enabled", "paid_purchase_required", "min_volume_gb", "reward_amount"}
+    if key not in allowed:
+        raise ValueError("تنظیم رفرال نامعتبر است")
+    if key in {"min_volume_enabled", "paid_purchase_required"}:
+        value = "1" if bool(value) else "0"
+    else:
+        value = str(max(0, int(value)))
+    set_setting(REFERRAL_SETTING_PREFIX + key, value)
+
+def referral_purchase_qualifies(volume_gb, paid_purchase: bool = True, is_free_test: bool = False) -> bool:
+    """آیا خرید فعلی باید پاداش رفرال را آزاد کند؟
+    حالت‌ها: حداقل حجم، هر خرید پولی، یا بدون هیچ شرط خرید.
+    تست رایگان هیچ‌وقت خرید واجد شرایط محسوب نمی‌شود.
+    """
+    settings = get_referral_settings()
+    if is_free_test or not paid_purchase:
+        return False
+    if not settings["paid_purchase_required"]:
+        return True
+    if settings["min_volume_enabled"]:
+        try:
+            return float(volume_gb or 0) >= settings["min_volume_gb"]
+        except (TypeError, ValueError):
+            return False
+    return True
+
+def release_all_pending_referrals() -> int:
+    """تمام رفرال‌های pending را در یک تراکنش آزاد می‌کند؛ برای خاموش‌کردن کامل شرط خرید."""
+    released = 0
+    with transaction() as cur:
+        cur.execute("SELECT * FROM referrals WHERE status = 'pending'")
+        refs = _fetchall(cur)
+        for ref in refs:
+            reward = int(ref["reward"] or 0)
+            cur.execute("SELECT locked_wallet FROM users WHERE id = ?", (ref["referrer_id"],))
+            row = _fetchone(cur)
+            if row is None or int(row["locked_wallet"] or 0) < reward:
+                continue
+            cur.execute("UPDATE referrals SET status = 'completed' WHERE id = ?", (ref["id"],))
+            cur.execute("UPDATE users SET successful_invites = successful_invites + 1, locked_wallet = locked_wallet - ?, wallet = wallet + ? WHERE id = ?", (reward, reward, ref["referrer_id"]))
+            cur.execute("INSERT INTO transactions (user_id, type, amount, status, description, created_at) VALUES (?, 'referral_release', ?, 'completed', ?, ?)", (ref["referrer_id"], reward, "آزادسازی فوری پاداش دعوت (بدون شرط خرید)", _now()))
+            released += 1
+    return released
+
 def get_setting(key: str, default: str | None = None) -> str | None:
     # fix/perf: این تابع تقریباً روی هر ساخت پیام/کیبورد (متن‌های ربات،
     # کانال‌های عضویت اجباری، تنظیمات custom-build و...) صدا زده می‌شود؛ وقتی
@@ -1584,56 +1638,6 @@ def set_setting(key: str, value: str):
             (key, value),
         )
     cache.set(f"setting:{key}", value)
-
-
-# ---------------------------------------------------------------------------
-# 🎁 تنظیمات رفرال — منبع واقعی تنظیمات از جدول settings دیتابیس است.
-# ---------------------------------------------------------------------------
-_REFERRAL_ENABLED_KEY = "referral_enabled"
-_REFERRAL_MIN_VOLUME_KEY = "referral_min_volume_gb"
-_REFERRAL_REWARD_KEY = "referral_reward_amount"
-
-def get_referral_enabled() -> bool:
-    return get_setting(_REFERRAL_ENABLED_KEY, "1") != "0"
-
-def get_referral_min_volume_gb() -> int:
-    try:
-        return max(0, int(get_setting(_REFERRAL_MIN_VOLUME_KEY, str(REFERRAL_MIN_VOLUME_GB))))
-    except (TypeError, ValueError):
-        return REFERRAL_MIN_VOLUME_GB
-
-def get_referral_reward_amount() -> int:
-    try:
-        return max(0, int(get_setting(_REFERRAL_REWARD_KEY, str(REFERRAL_LOCK_AMOUNT))))
-    except (TypeError, ValueError):
-        return REFERRAL_LOCK_AMOUNT
-
-def set_referral_settings(*, enabled=None, min_volume_gb=None, reward_amount=None) -> None:
-    if enabled is not None:
-        set_setting(_REFERRAL_ENABLED_KEY, "1" if enabled else "0")
-    if min_volume_gb is not None:
-        value = int(min_volume_gb)
-        if value < 0:
-            raise ValueError("حجم حداقل رفرال نمی‌تواند منفی باشد.")
-        set_setting(_REFERRAL_MIN_VOLUME_KEY, str(value))
-    if reward_amount is not None:
-        value = int(reward_amount)
-        if value < 0:
-            raise ValueError("مبلغ پاداش رفرال نمی‌تواند منفی باشد.")
-        set_setting(_REFERRAL_REWARD_KEY, str(value))
-
-def referral_purchase_qualifies(volume_gb, *, is_free_test=False) -> bool:
-    # تست رایگان هیچ‌وقت نباید پاداش رفرال را آزاد کند.
-    if is_free_test:
-        return False
-    try:
-        volume = float(volume_gb or 0)
-    except (TypeError, ValueError):
-        volume = 0
-    # وقتی محدودیت خاموش است، هر خرید پولی واجد شرایط است.
-    if not get_referral_enabled():
-        return volume > 0
-    return volume >= get_referral_min_volume_gb()
 
 
 # ---------------------------------------------------------------------------
