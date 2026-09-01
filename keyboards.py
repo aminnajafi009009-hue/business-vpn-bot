@@ -322,19 +322,28 @@ def admin_botinfo_menu():
         for key, label in labels.items()
     ]
     rows.append([InlineKeyboardButton(text="📢 مدیریت کانال‌های اجباری", callback_data="botinfo_channels", style="primary")])
-    rows.append([InlineKeyboardButton(text="🎁 تنظیمات رفرال", callback_data="botinfo_referral_settings", style="success")])
+    rows.append([InlineKeyboardButton(text="🎁 مدیریت رفرال", callback_data="botinfo_referral", style="success")])
     rows.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_back", style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def admin_referral_settings_keyboard(enabled: bool):
-    status = "🟢 روشن" if enabled else "🔴 خاموش"
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"شرط خرید حداقل حجم: {status}", callback_data="botinfo_ref_toggle", style="primary")],
-        [InlineKeyboardButton(text="📦 تغییر حداقل حجم خرید", callback_data="botinfo_ref_min", style="primary")],
-        [InlineKeyboardButton(text="💰 تغییر مبلغ پاداش رفرال", callback_data="botinfo_ref_reward", style="primary")],
+def admin_botinfo_referral_menu(settings: dict):
+    min_enabled = settings["min_volume_enabled"]
+    paid_required = settings["paid_purchase_required"]
+    rows = [
+        [InlineKeyboardButton(
+            text=("🟢 شرط حداقل حجم روشن" if min_enabled else "🔴 شرط حداقل حجم خاموش"),
+            callback_data="refset_toggle_min_volume", style="primary"
+        )],
+        [InlineKeyboardButton(
+            text=("🟢 شرط خرید پولی روشن" if paid_required else "🔴 شرط خرید پولی خاموش"),
+            callback_data="refset_toggle_paid_purchase", style="primary"
+        )],
+        [InlineKeyboardButton(text=f"📦 تغییر حداقل حجم: {settings['min_volume_gb']} گیگ", callback_data="refset_edit_min_volume", style="primary")],
+        [InlineKeyboardButton(text=f"💰 تغییر مبلغ رفرال: {settings['reward_amount']:,} تومان", callback_data="refset_edit_reward", style="primary")],
         [InlineKeyboardButton(text="🔙 بازگشت", callback_data="botinfo_open", style="danger")],
-    ])
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def admin_botinfo_field_keyboard(key: str):
