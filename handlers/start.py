@@ -61,12 +61,33 @@ async def _notify_referrer_of_new_join(bot, user: dict):
         return
 
     try:
+        settings = db.get_referral_settings()
+        if settings["paid_purchase_required"]:
+            if settings["min_volume_enabled"]:
+                reward_text = (
+                    f"پس از اینکه این کاربر یک خرید "
+                    f"{settings['min_volume_gb']} گیگ یا بیشتر انجام دهد، "
+                    f"{settings['reward_amount']:,} تومان به‌صورت خودکار "
+                    f"به کیف پول شما آزاد می‌شود."
+                )
+            else:
+                reward_text = (
+                    "پس از اینکه این کاربر هر خرید پولی انجام دهد، "
+                    f"{settings['reward_amount']:,} تومان به‌صورت خودکار "
+                    "به کیف پول شما آزاد می‌شود."
+                )
+        else:
+            reward_text = (
+                f"{settings['reward_amount']:,} تومان به‌صورت فوری و بدون نیاز "
+                "به خرید به کیف پول شما آزاد می‌شود."
+            )
+
         await bot.send_message(
             int(referrer["telegram_id"]),
             f"🎉 یک عضو جدید از طریق لینک دعوت شما وارد ربات شد و عضویتش تأیید شد!\n\n"
             f"👤 نام: {user['name']}\n"
             f"🆔 آیدی: `{user['telegram_id']}`\n\n"
-            f"💰 {((f"پس از اینکه این کاربر یک خرید {db.get_referral_settings()['min_volume_gb']} گیگ یا بیشتر انجام دهد، " if db.get_referral_settings()['min_volume_enabled'] else "پس از اینکه این کاربر هر خرید پولی انجام دهد، " ) + f"{db.get_referral_settings()['reward_amount']:,} تومان به‌صورت خودکار به کیف پول شما آزاد می‌شود.") if db.get_referral_settings()['paid_purchase_required'] else f"{db.get_referral_settings()['reward_amount']:,} تومان به‌صورت فوری و بدون نیاز به خرید به کیف پول شما آزاد می‌شود."}",
+            f"💰 {reward_text}",
             parse_mode="Markdown",
         )
     except Exception as e:
