@@ -78,15 +78,15 @@ async def wallet_overview(callback: types.CallbackQuery):
         await callback.answer(ui_editor.get_alert_text("msg_18ae2939df", "ابتدا دستور /start را بزنید."), show_alert=True)
         return
 
-    referral_enabled = db.get_referral_enabled()
-    referral_min_volume = db.get_referral_min_volume_gb()
-    referral_condition = f"خرید حداقل {referral_min_volume} گیگ" if referral_enabled else "هر خرید پولی"
     text = (
         f"💰 کیف پول شما\n\n"
         f"💰 موجودی قابل استفاده: {user['wallet']:,} تومان\n"
         f"🔒 موجودی در انتظار: {user['locked_wallet']:,} تومان\n\n"
-        f"ℹ️ موجودی در انتظار، پس از {referral_condition} توسط فردی که با لینک شما عضو شده، "
-        f"به‌صورت خودکار آزاد می‌شود."
+        + (f"ℹ️ موجودی در انتظار، پس از خرید حجم {db.get_referral_settings()['min_volume_gb']} گیگ یا بیشتر توسط فردی که با لینک شما عضو شده، به‌صورت خودکار آزاد می‌شود."
+         if db.get_referral_settings()["paid_purchase_required"] and db.get_referral_settings()["min_volume_enabled"]
+         else ("ℹ️ پاداش دعوت پس از هر خرید پولی توسط فرد دعوت‌شده به‌صورت خودکار آزاد می‌شود."
+               if db.get_referral_settings()["paid_purchase_required"]
+               else "ℹ️ پاداش دعوت بدون نیاز به خرید، بلافاصله پس از عضویت فرد دعوت‌شده آزاد می‌شود."))
     )
     await show_menu_with_sticker(callback.bot, callback.message.chat.id, "wallet", text, reply_markup=wallet_menu())
     await callback.answer()
@@ -109,13 +109,13 @@ async def wallet_locked(callback: types.CallbackQuery):
     if user is None:
         await callback.answer(ui_editor.get_alert_text("msg_18ae2939df", "ابتدا دستور /start را بزنید."), show_alert=True)
         return
-    referral_enabled = db.get_referral_enabled()
-    referral_min_volume = db.get_referral_min_volume_gb()
-    referral_condition = f"خرید حداقل {referral_min_volume} گیگ" if referral_enabled else "هر خرید پولی"
     text = (
         f"🔒 موجودی در انتظار شما\n\n{user['locked_wallet']:,} تومان\n\n"
-        f"این مبلغ از دعوت دوستان به‌دست آمده و پس از {referral_condition} توسط آن‌ها، "
-        f"به‌صورت خودکار به موجودی قابل‌استفاده شما اضافه می‌شود."
+        + (f"این مبلغ از دعوت دوستان به‌دست آمده و پس از خرید حجم {db.get_referral_settings()['min_volume_gb']} گیگ یا بیشتر توسط آن‌ها، به‌صورت خودکار به موجودی قابل‌استفاده شما اضافه می‌شود."
+         if db.get_referral_settings()["paid_purchase_required"] and db.get_referral_settings()["min_volume_enabled"]
+         else ("این مبلغ پس از هر خرید پولی فرد دعوت‌شده آزاد می‌شود."
+               if db.get_referral_settings()["paid_purchase_required"]
+               else "این مبلغ بدون نیاز به خرید فرد دعوت‌شده، پس از عضویت او آزاد می‌شود."))
     )
     await show_menu_with_sticker(callback.bot, callback.message.chat.id, "wallet_locked", text, reply_markup=back_button("profile", "🔙 بازگشت", screen="wallet_locked"))
     await callback.answer()
