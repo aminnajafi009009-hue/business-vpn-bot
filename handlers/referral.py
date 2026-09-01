@@ -30,6 +30,11 @@ async def referral(callback: types.CallbackQuery):
     referral_reward = db.get_referral_reward_amount()
     invite_link = f"https://t.me/{bot_info.get('bot_username')}?start={stats['invite_code']}"
 
+    condition_text = (
+        f"شرط خرید حداقل {referral_min_volume} گیگ فعال است"
+        if referral_enabled
+        else "شرط حداقل حجم خرید خاموش است و هر خرید پولی واجد شرایط است"
+    )
     text = (
         f"👥 دعوت دوستان و کسب درآمد 💸\n\n"
         f"دوستانتو دعوت کن و به‌ازای هر دعوت موفق، {referral_reward:,} تومان پاداش نقدی بگیر! 🎁\n\n"
@@ -39,7 +44,7 @@ async def referral(callback: types.CallbackQuery):
         f"✅ دعوت‌های موفق: {stats['successful_invites']}\n"
         f"🔓 مبلغ آزاد شده: {stats['released_amount']:,} تومان\n"
         f"🔒 مبلغ در انتظار: {user['locked_wallet']:,} تومان\n\n"
-        f"ℹ️ {"شرط خرید حداقل " + str(referral_min_volume) + " گیگ فعال است" if referral_enabled else "شرط حداقل حجم خرید خاموش است و هر خرید پولی واجد شرایط است"}. "
+        f"ℹ️ {condition_text}. "
         f"پاداش {referral_reward:,} تومان به‌صورت خودکار به کیف پول شما آزاد می‌شود. "
         f"(تست رایگان پاداش را آزاد نمی‌کند)"
     )
