@@ -1311,7 +1311,18 @@ async def _finalize_send(message: types.Message, state: FSMContext):
         db.set_order_status(plan_order_id, "fulfilled")
 
     try:
+        # ترتیب تحویل: اول استیکر + متن موفقیت، بعد خود سرویس/QR.
         await send_notification_sticker(message.bot, int(uid), "notif_service_delivery")
+        is_free_test = False
+        if plan_order_id:
+            _plan_order = db.get_order(plan_order_id)
+            is_free_test = bool(_plan_order and _plan_order.get("plan_key") == FREE_TEST_PLAN_KEY)
+        pre_delivery_text = (
+            "🎁 تست رایگان شما با موفقیت فعال شد!\n\nسرویس شما در حال آماده‌سازی و ارسال است. ⏳"
+            if is_free_test
+            else "✅ خرید موفق!\n\nسرویس شما در حال آماده‌سازی و ارسال است. ⏳"
+        )
+        await message.bot.send_message(int(uid), pre_delivery_text)
         await message.bot.send_photo(
             int(uid),
             qr_file_id,
