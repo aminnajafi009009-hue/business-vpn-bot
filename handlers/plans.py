@@ -487,10 +487,13 @@ async def pay_with_wallet(callback: types.CallbackQuery, state: FSMContext):
             f"💰 {final_price:,} تومان",
             reply_markup=admin_purchase_notify_keyboard(str(callback.from_user.id), plan_key, order_id),
         )
-    await show_menu_with_sticker(callback.bot, callback.message.chat.id, "plan_pay_wallet", 
-        "✅ خرید موفق! سرویس شما به‌زودی ارسال می‌شود.",
-        reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[]),
-    )
+    # اگر تحویل خودکار انجام شده، _deliver_panel_link قبلاً استیکر + متن را
+    # درست قبل از سرویس فرستاده است؛ پیام موفقیت را دوباره بعد از سرویس نفرست.
+    if not handled:
+        await show_menu_with_sticker(callback.bot, callback.message.chat.id, "plan_pay_wallet", 
+            "✅ خرید موفق! سرویس شما به‌زودی ارسال می‌شود.",
+            reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[]),
+        )
     await state.update_data(discount_percent=0, discount_code="")
     await callback.answer()
 
@@ -761,10 +764,21 @@ async def check_online_payment(callback: types.CallbackQuery):
         result = await finalize_online_payment(callback.bot, payment)
 
     if result is None:
-        # یعنی هم‌زمان یک فراخوانی دیگر (مثلاً پولر پس‌زمینه یا مینی‌اپ) در
-        # حال پردازش همین پرداخت است؛ برای جلوگیری از سفارش تکراری اینجا کار
-        # دیگری انجام نمی‌دهیم، فقط پیام موفقیت را نشان می‌دهیم.
-        pass
+        # یعنی هم‌زمان یک فراخوانی دیگر در حال پردازش همین پرداخت است.
+        await callback.answer("⏳ این پرداخت در حال پردازش است؛ اگر سرویس خودکار باشد، پیام آن به‌زودی ارسال می‌شود.", show_alert=True)
+        return
+
+    # اگر سرویس همین الان خودکار تحویل شده، اعلان موفقیتِ درست قبل از سرویس
+    # قبلاً ارسال شده و نباید یک پیام دوم بعد از سرویس ساخته شود.
+    _auto_delivered = False
+    if payment_kind == "custom":
+        _custom_order = db.get_custom_order(result)
+        _auto_delivered = bool(_custom_order and _custom_order.get("status") == "fulfilled")
+    elif payment_kind != "wallet_charge":
+        _plan_order = db.get_order(result)
+        _auto_delivered = bool(_plan_order and _plan_order.get("status") == "fulfilled")
+    if _auto_delivered:
+        return
 
     success_text = (
         "✅ کیف پول شما شارژ شد."
@@ -1764,7 +1778,10 @@ async def cbuild_pay_wallet(callback: types.CallbackQuery, state: FSMContext):
             + f"💰 {price:,} تومان (پرداخت‌شده از کیف پول)\n🔢 شماره سفارش: {order_id}",
             reply_markup=admin_custom_order_notify_keyboard(order_id),
         )
-    await show_menu_with_sticker(callback.bot, callback.message.chat.id, "cbuild_pay_wallet", "✅ پرداخت موفق! سرویس شما به‌زودی ساخته و ارسال می‌شود.")
+    # در تحویل خودکار، اعلان موفقیت قبل از خود سرویس توسط _deliver_panel_link
+    # ارسال شده است؛ از ارسال مجدد آن بعد از سرویس جلوگیری می‌کنیم.
+    if not handled:
+        await show_menu_with_sticker(callback.bot, callback.message.chat.id, "cbuild_pay_wallet", "✅ پرداخت موفق! سرویس شما به‌زودی ساخته و ارسال می‌شود.")
     await state.clear()
     await callback.answer()
 
