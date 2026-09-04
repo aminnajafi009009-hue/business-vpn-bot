@@ -40,7 +40,7 @@ import crypto
 import panels
 import fsm_storage
 import bot_info
-from config import ADMIN_ID
+from config import ADMIN_ID, FREE_TEST_PLAN_KEY
 from states import AdminStates
 from keyboards import (
     admin_vpn_panel_types_keyboard,
@@ -57,7 +57,7 @@ from keyboards import (
     vpn_catalog_pick_keyboard,
     config_delivery_keyboard,
 )
-from utils import is_duplicate_action, now_tehran_naive
+from utils import is_duplicate_action, now_tehran_naive, send_notification_sticker
 from handlers.admin import _is_admin, _log_fulfilled_order, AdminPermissionMiddleware
 
 router = Router(name="panel_admin")
@@ -76,6 +76,28 @@ def _make_qr_bytes(link: str) -> bytes:
     buf = BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+async def _send_pre_delivery_notice(bot, uid, *, plan_key=None, order_kind=None, is_renew=False):
+    """پیام/استیکر موفقیت را همیشه قبل از ارسال خود سرویس می‌فرستد.
+
+    این تابع عمداً قبل از send_photo/send_message تحویل سرویس صدا زده می‌شود
+    تا در تمام مسیرهای تحویل (تست رایگان، کیف پول، آنلاین و کارت‌به‌کارت)
+    ترتیب ثابت باشد: استیکر → متن → سرویس.
+    """
+    try:
+        await send_notification_sticker(bot, int(uid), "notif_service_delivery")
+        if is_renew:
+            text = "✅ تمدید سرویس شما با موفقیت انجام شد!\n\nسرویس شما در حال بروزرسانی است. ⏳"
+        elif plan_key == FREE_TEST_PLAN_KEY:
+            text = "🎁 تست رایگان شما با موفقیت فعال شد!\n\nسرویس شما در حال آماده‌سازی و ارسال است. ⏳"
+        elif order_kind == "custom":
+            text = "✅ خرید موفق!\n\nسرویس شما در حال آماده‌سازی و ارسال است. ⏳"
+        else:
+            text = "✅ خرید موفق!\n\nسرویس شما در حال آماده‌سازی و ارسال است. ⏳"
+        await bot.send_message(int(uid), text)
+    except Exception:
+        logger.exception("ارسال اعلان پیش از تحویل سرویس ناموفق بود")
 
 
 def _pretty(data, limit: int = 1500) -> str:
@@ -1089,6 +1111,7 @@ async def _fulfill_custom_renew(bot, order: dict, order_id: int, volume, days) -
     user = db.get_user_by_id(cfg["user_id"])
     if user:
         try:
+            await _send_pre_delivery_notice(bot, user["telegram_id"], is_renew=True)
             decrypted_link = crypto.decrypt_config(updated_encrypted)
         except Exception:
             decrypted_link = None
@@ -1170,6 +1193,10 @@ async def _deliver_panel_link(bot, ctx: dict, link: str):
 
     sent_photo_file_id = None
     try:
+        # ترتیب تحویل: اول استیکر + متن موفقیت، بعد خود سرویس/QR.
+        await _send_pre_delivery_notice(
+            bot, uid, plan_key=plan_key, order_kind=order_kind,
+        )
         if qrcode:
             photo = types.BufferedInputFile(_make_qr_bytes(link), filename="qr.png")
             sent = await bot.send_photo(
