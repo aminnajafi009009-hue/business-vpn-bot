@@ -359,17 +359,29 @@ async def online_payment_poller(bot: Bot):
                             # تکراری به کاربر، این چرخه کاری انجام نمی‌دهد.
                             continue
                         try:
-                            if payment_kind == "wallet_charge":
-                                confirm_text = (
-                                    f"✅ پرداخت آنلاین شما تأیید شد و کیف پول شما به مبلغ "
-                                    f"{payment['price']:,} تومان شارژ شد."
-                                )
-                            else:
-                                confirm_text = (
-                                    f"✅ پرداخت آنلاین شما برای «{payment['plan_name']}» تأیید شد "
-                                    f"و سفارش ثبت گردید. سرویس شما به‌زودی ارسال می‌شود."
-                                )
-                            await bot.send_message(int(payment["telegram_id"]), confirm_text)
+                            # برای خرید سرویس، اگر تحویل خودکار انجام شده باشد،
+                            # _deliver_panel_link اعلان موفقیت را قبل از QR/سرویس فرستاده
+                            # و دیگر نباید تأییدیه‌ای بعد از سرویس ارسال شود.
+                            _already_delivered = False
+                            if payment_kind == "custom":
+                                _co = db.get_custom_order(result)
+                                _already_delivered = bool(_co and _co.get("status") == "fulfilled")
+                            elif payment_kind != "wallet_charge":
+                                _po = db.get_order(result)
+                                _already_delivered = bool(_po and _po.get("status") == "fulfilled")
+
+                            if not _already_delivered:
+                                if payment_kind == "wallet_charge":
+                                    confirm_text = (
+                                        f"✅ پرداخت آنلاین شما تأیید شد و کیف پول شما به مبلغ "
+                                        f"{payment['price']:,} تومان شارژ شد."
+                                    )
+                                else:
+                                    confirm_text = (
+                                        f"✅ پرداخت آنلاین شما برای «{payment['plan_name']}» تأیید شد "
+                                        f"و سفارش ثبت گردید. سرویس شما به‌زودی ارسال می‌شود."
+                                    )
+                                await bot.send_message(int(payment["telegram_id"]), confirm_text)
                         except Exception:
                             logger.exception("ارسال پیام تایید پرداخت خودکار به کاربر ناموفق بود")
                 except Exception:
